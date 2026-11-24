@@ -1,0 +1,132 @@
+/*
+ * SocBridge design tokens.
+ *
+ * Every colour, font, size and the aperture geometry used by the UI is defined
+ * here. Component styles reference these variables only; do not introduce raw
+ * colour values elsewhere. See public/design/README.md for the rules.
+ */
+
+:root {
+  /* --- Palette (approved identity) ------------------------------------ */
+  --ink: #101A24;      /* base, panels */
+  --slate: #1C2A38;    /* raised surfaces */
+  --steel: #60748A;    /* secondary text, hairlines */
+  --brass: #C89A48;    /* identity, focus, primary actions — never severity */
+  --brass-d: #8E6B28;  /* darker blades, hover */
+  --haze: #DDE5EC;     /* text on dark */
+  --paper: #F4F7F9;    /* light mode */
+
+  /* --- Severity scale (independent of the identity colours) ----------- */
+  --sev-critical-bg: #5B1E1A;  --sev-critical-fg: #F3C9C4;
+  --sev-high-bg:     #6E3A12;  --sev-high-fg:     #F5D2B2;
+  --sev-medium-bg:   #5C4A17;  --sev-medium-fg:   #EEDCA8;
+  --sev-low-bg:      #24414F;  --sev-low-fg:      #BBD6E2;
+  --sev-info-bg:     #2A3340;  --sev-info-fg:     #AEBECE;
+
+  /* --- Semantic roles (dark is the primary theme) ---------------------- */
+  --bg: var(--ink);
+  --surface: var(--slate);
+  --surface-sunken: var(--ink);
+  --text: var(--haze);
+  /* Steel alone is 3.0:1 on slate; lifting it toward haze gives 5.9:1 for readable secondary text. */
+  --text-muted: color-mix(in srgb, var(--haze) 45%, var(--steel));
+  --line: color-mix(in srgb, var(--steel) 45%, transparent);
+  --line-strong: var(--steel);
+  --accent: var(--brass);
+  --accent-hover: var(--brass-d);
+  --accent-text: var(--ink);
+  --focus-ring: var(--brass);
+  /* UI errors reuse the critical pair: an error is the most severe state the UI shows. */
+  --error-bg: var(--sev-critical-bg);
+  --error-fg: var(--sev-critical-fg);
+
+  /* Service health (status bar dots). Always paired with a text label. */
+  --health-up: #5FBF8A;
+  --health-degraded: #E39A4F;
+  --health-down: #EE6A5E;
+  --health-off: var(--steel);
+
+  /* --- Attack map screen: an amber CRT, the same in both themes --------- */
+  --crt-bg: #0B0A07;
+  --crt-land: #261E10;
+  --crt-heat-low: #4A3116;
+  --crt-heat-mid: #683018;
+  --crt-heat-high: #7C1F1E;
+  --crt-line: #7D5C2E;
+  --crt-text: #D9A860;
+  --crt-ssh: #C9645A;
+  --crt-smtp: #C4A552;
+  --crt-imap: #6FA3B5;
+  --crt-other-login: #B8B09C;
+  --crt-web: #B5789F;
+  --crt-scan: #8F80B8;
+  --crt-ftp: #8FB06A;
+  --crt-other-attack: #9C8F78;
+  /* Services found in the data, in order of appearance. */
+  --crt-port-scan: #E6D36B;
+  --crt-firewall: #7F8C99;
+  --crt-ips: #E8843C;
+  --crt-extra-1: #5FB3A1;
+  --crt-extra-2: #D98B6A;
+  --crt-extra-3: #7F9BD1;
+  --crt-extra-4: #C98FC9;
+  --crt-extra-5: #A9A84E;
+  --crt-extra-6: #6FA87C;
+
+  /* --- Typography ------------------------------------------------------ */
+  --font-ui: 'Instrument Sans', system-ui, -apple-system, 'Segoe UI', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji';
+  /* Data only: CVE IDs, hashes, agent IDs, fingerprints, token hints, URLs. */
+  --font-data: 'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 15px;
+  --text-lg: 18px;
+  --text-xl: 24px;
+  --data-size: 0.86em; /* Martian Mono runs wide; keep it visually level with the UI face */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* --- Space, shape, motion ------------------------------------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --hairline: 1px;
+  --motion-fast: 120ms;
+  --motion-aperture: 700ms;
+
+  /* --- Aperture mark --------------------------------------------------- */
+  /* One blade path: M -R -R  L R -R  L R -a  L -a -a  Z, rotated 0/90/180/270. */
+  --aperture-radius: 44;
+  --aperture-open: 13;   /* half-width of the opening when a session is live */
+  --aperture-closed: 0;  /* signed out: the opening closes completely */
+  --aperture-blade-light: var(--brass);   /* blades at 0° and 180° */
+  --aperture-blade-dark: var(--brass-d);  /* blades at 90° and 270° */
+
+  color-scheme: dark;
+}
+
+/* Light mode: paper base, ink text. Severity chips keep their own pairs. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: var(--paper);
+    --surface: #FFFFFF;
+    --surface-sunken: var(--paper);
+    --text: var(--ink);
+    /* Steel on paper is 4.47:1; a touch of ink brings it above 4.5:1. */
+    --text-muted: color-mix(in srgb, var(--ink) 15%, var(--steel));
+    --line: color-mix(in srgb, var(--steel) 35%, transparent);
+    --accent-text: var(--ink);
+    --health-up: #23804D;
+    --health-degraded: #B25F14;
+    --health-down: #C0392B;
+    color-scheme: light;
+  }
+}

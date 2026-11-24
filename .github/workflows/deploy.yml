@@ -1,0 +1,209 @@
+name: Deploy
+
+# Runs on a self-hosted runner on the target host after "Build and publish
+# image" has pushed an image for a push to main. The runner reaches Docker
+# through a socket proxy and only ever recreates the single `socbridge` service.
+#
+# Everything host-specific comes from the runner container's environment, not
+# from this repository:
+#   DOCKER_HOST        socket proxy, e.g. tcp://docker-socket-proxy:2375
+#   COMPOSE_FILE_PATH  compose file that defines the socbridge service
+#   COMPOSE_ENV_FILE   env file passed to every compose call
+#   COMPOSE_PROJECT    compose project name (default: config)
+#   APP_URL            URL the runner reaches the service on, e.g. https://socbridge:8443
+#                      (the certificate is checked against the service's own
+#                      PUBLIC_URL host, so this may be an internal name)
+#   APP_CA_FILE        optional CA certificate for APP_URL (built-in CA mode)
+#   NTFY_URL/NTFY_TOKEN optional push notification on success/failure
+#
+# The compose service must be named and have container_name `socbridge`, and use
+# image ghcr.io/<owner>/<repo>:main (the image is named after the repository).
+
+on:
+  workflow_run:
+    workflows: ["Build and publish image"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read   # the image is private; pull it with this run's token
+
+concurrency:
+  group: deploy-socbridge
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy SocBridge
+    runs-on: [self-hosted, socbridge]
+    # Only deploy what was built from a push to main in this repository.
+    if: >-
+      github.event_name == 'workflow_dispatch' || (
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
+    env:
+      SERVICE: socbridge
+      FULL_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Preflight
+        id: pre
+        run: |
+          set -euo pipefail
+          fail=0
+          for v in DOCKER_HOST COMPOSE_FILE_PATH COMPOSE_ENV_FILE APP_URL; do
+            [ -n "${!v:-}" ] || { echo "::error::$v is not set in the runner environment"; fail=1; }
+          done
+          [ "$fail" -eq 0 ] || exit 1
+          test -r "$COMPOSE_FILE_PATH" || { echo "::error::cannot read $COMPOSE_FILE_PATH"; exit 1; }
+          docker version --format '{{.Server.Version}}' > /dev/null \
+            || { echo "::error::cannot reach Docker at $DOCKER_HOST"; exit 1; }
+          # Job logs of a public repository are public: keep host names out of them.
+          PUB=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$SERVICE" 2>/dev/null | sed -n 's/^PUBLIC_URL=//p' | head -n 1 || true)
+          for v in "$PUB" "$APP_URL" "${DOCKER_HOST:-}" "${NTFY_URL:-}"; do
+            [ -n "$v" ] || continue
+            echo "::add-mask::$v"
+            h="${v#*://}"; h="${h%%/*}"; h="${h%%:*}"
+            # "socbridge" alone is the service name, not a secret.
+            [ "$h" = "$SERVICE" ] || echo "::add-mask::$h"
+          done
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          {
+            echo "image=$IMAGE"
+            echo "short=${FULL_SHA:0:7}"
+            echo "rollback=rollback-$(date +%Y%m%d-%H%M%S)"
+          } >> "$GITHUB_OUTPUT"
+          echo "### Deploy \`$SERVICE\` \`${FULL_SHA:0:7}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Compose helper
+        run: |
+          cat > "$RUNNER_TEMP/compose" <<'SH'
+          #!/usr/bin/env bash
+          exec docker compose -p "${COMPOSE_PROJECT:-config}" \
+            --project-directory "$(dirname "$COMPOSE_FILE_PATH")" \
+            --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE_PATH" "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/compose"
+
+      - name: Check the service uses the published image
+        run: |
+          set -euo pipefail
+          WANT="${{ steps.pre.outputs.image }}:main"
+          # --no-env-resolution: the runner only mounts the files SocBridge needs,
+          # not every service's env_file in the shared compose file.
+          GOT=$("$RUNNER_TEMP/compose" config --no-env-resolution --format json "$SERVICE" | jq -r --arg s "$SERVICE" '.services[$s].image // empty')
+          [ "$GOT" = "$WANT" ] || { echo "::error::service $SERVICE uses image '$GOT', expected '$WANT'"; exit 1; }
+
+      - name: Tag the running image for rollback
+        run: |
+          set -euo pipefail
+          CURRENT=$(docker inspect -f '{{.Image}}' "$SERVICE" 2>/dev/null || true)
+          if [ -n "$CURRENT" ]; then
+            docker tag "$CURRENT" "${{ steps.pre.outputs.image }}:${{ steps.pre.outputs.rollback }}"
+            echo "rollback image: ${{ steps.pre.outputs.rollback }}"
+          else
+            echo "::notice::$SERVICE is not running yet (first deploy); no rollback image"
+          fi
+
+      - name: Pull the image built from this commit
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          IMG="${{ steps.pre.outputs.image }}"
+          # Private package: pull with this run's short-lived token from a
+          # throwaway Docker config, so no credential stays on the runner. No
+          # `docker login`: the socket proxy denies the /auth endpoint; the CLI
+          # sends these credentials as X-Registry-Auth on the pull instead.
+          export DOCKER_CONFIG="$RUNNER_TEMP/docker-config"
+          mkdir -p "$DOCKER_CONFIG"
+          AUTH=$(printf '%s:%s' "${{ github.actor }}" "$GHCR_TOKEN" | base64 -w0)
+          printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "$AUTH" > "$DOCKER_CONFIG/config.json"
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+          docker pull "$IMG:main-${{ steps.pre.outputs.short }}"
+          docker tag "$IMG:main-${{ steps.pre.outputs.short }}" "$IMG:main"
+
+      - name: Recreate the service
+        run: '"$RUNNER_TEMP/compose" up -d --no-deps --force-recreate --pull never "$SERVICE"'
+
+      - name: Wait for healthy and verify the build
+        run: |
+          set -euo pipefail
+          deadline=$(( $(date +%s) + 300 ))   # first start may wait for an ACME certificate
+          while :; do
+            STATE=$(docker inspect -f '{{.State.Status}}' "$SERVICE" 2>/dev/null || echo missing)
+            HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$SERVICE" 2>/dev/null || echo none)
+            echo "$SERVICE: $STATE/$HEALTH"
+            [ "$STATE" = running ] && [ "$HEALTH" = healthy ] && break
+            if [ "$STATE" = exited ] || [ "$HEALTH" = unhealthy ] || [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::$SERVICE did not become healthy; see its log on the host"
+              exit 1
+            fi
+            sleep 5
+          done
+          CURL=(curl -sS --max-time 10)
+          if [ -n "${APP_CA_FILE:-}" ] && [ -r "$APP_CA_FILE" ]; then
+            # Trust the system CAs *and* the built-in CA, so the check keeps
+            # working after the service switches to a public certificate.
+            BUNDLE="$RUNNER_TEMP/ca-bundle.pem"
+            cat /etc/ssl/certs/ca-certificates.crt "$APP_CA_FILE" > "$BUNDLE"
+            CURL+=(--cacert "$BUNDLE")
+          fi
+          # APP_URL is often an internal name (the container), which a public
+          # certificate does not cover. Connect there, but ask for and verify
+          # the service's own PUBLIC_URL host, as a browser would.
+          TARGET="${APP_URL%/}"
+          PUB=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$SERVICE" | sed -n 's/^PUBLIC_URL=//p' | head -n 1)
+          hostport() { local u="${1#https://}"; u="${u%%/*}"; if [[ "$u" == *:* ]]; then echo "${u%%:*} ${u##*:}"; else echo "$u 443"; fi; }
+          if [[ "$TARGET" == https://* && "$PUB" == https://* ]]; then
+            read -r AH AP <<< "$(hostport "$TARGET")"
+            read -r PH PP <<< "$(hostport "$PUB")"
+            if [ "$AH:$AP" != "$PH:$PP" ]; then
+              CURL+=(--connect-to "$PH:$PP:$AH:$AP")
+              TARGET="https://$PH:$PP"
+            fi
+          fi
+          BODY=$("${CURL[@]}" -f "$TARGET/health")
+          [ "$(echo "$BODY" | jq -r '.status // ""')" = ok ] || { echo "::error::/health did not answer ok"; exit 1; }
+          # /health is public and does not name the build; read it from the running container.
+          GOT=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$SERVICE" | sed -n 's/^BUILD_SHA=//p' | head -n 1 | cut -c1-7)
+          [ "$GOT" = "${{ steps.pre.outputs.short }}" ] \
+            || { echo "::error::running build '$GOT', expected ${{ steps.pre.outputs.short }}"; exit 1; }
+          CODE=$("${CURL[@]}" -o /dev/null -w '%{http_code}' -X POST "$TARGET/mcp" -H 'content-type: application/json' -d '{}')
+          [ "$CODE" = 401 ] || { echo "::error::/mcp without a token answered $CODE, expected 401"; exit 1; }
+          echo "Verified: build ${GOT}, /mcp requires a token, TLS valid" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Roll back on failure
+        if: failure() && steps.pre.outcome == 'success'
+        run: |
+          set -uo pipefail
+          IMG="${{ steps.pre.outputs.image }}"
+          RB="$IMG:${{ steps.pre.outputs.rollback }}"
+          if docker image inspect "$RB" > /dev/null 2>&1; then
+            docker tag "$RB" "$IMG:main"
+            "$RUNNER_TEMP/compose" up -d --no-deps --force-recreate --pull never "$SERVICE"
+            echo "::warning::rolled back to ${{ steps.pre.outputs.rollback }}"
+          else
+            echo "::warning::no rollback image available"
+          fi
+
+      - name: Notify
+        if: always()
+        run: |
+          [ -n "${NTFY_URL:-}" ] || exit 0
+          STATUS="${{ job.status }}"
+          # -o /dev/null: the ntfy reply names the topic; keep it out of the job log.
+          curl -fsS -o /dev/null --max-time 10 -H "Authorization: Bearer ${NTFY_TOKEN:-}" \
+            -H "Title: SocBridge deploy $STATUS" -H "Tags: $([ "$STATUS" = success ] && echo white_check_mark || echo x)" \
+            -d "SocBridge ${{ steps.pre.outputs.short }}: $STATUS ($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" \
+            "$NTFY_URL" || true
+
+      - name: Prune old rollback tags
+        if: success()
+        run: |
+          IMG="${{ steps.pre.outputs.image }}"
+          docker images "$IMG" --format '{{.Tag}}' | grep '^rollback-' | sort -r | tail -n +4 \
+            | xargs -r -I{} docker rmi "$IMG:{}" || true

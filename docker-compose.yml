@@ -1,0 +1,49 @@
+# Example deployment. Adjust names, ports and networks to your environment.
+#
+#   mkdir -p secrets && openssl rand -hex 32 > secrets/config_key
+#   sudo chown 1000 secrets/config_key && chmod 400 secrets/config_key   # container runs as uid 1000
+#   docker compose up -d --build
+#   docker compose logs socbridge   # shows the one-time setup token on first start
+
+services:
+  socbridge:
+    build: .
+    image: socbridge:latest
+    container_name: socbridge
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+    environment:
+      PUBLIC_URL: https://socbridge.example.com:8443
+      # Leave TLS_MODE unset to pick the certificate in the first-time setup
+      # guide (Let's Encrypt via Cloudflare, or the built-in CA). Setting it
+      # locks the choice to the environment.
+      # TLS_MODE: builtin
+      CONFIG_ENCRYPTION_KEY_FILE: /run/secrets/config_key
+      # Refuse plain http / unverified TLS to backends on real networks:
+      # REQUIRE_SECURE_TRANSPORT: "true"
+    secrets:
+      - config_key
+    volumes:
+      - socbridge-data:/data
+      # Optional, network edge layers on the Pew pew map (GeoLite2-City or DB-IP City Lite).
+      # Mount the folder, not the file, so a replaced file is seen; and set GEOIP_DB: /geoip/city.mmdb
+      # - ./geoip:/geoip:ro
+      # Optional, for the Trivy backend once implemented:
+      # - ./trivy-reports:/reports/trivy:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1g
+    pids_limit: 200
+
+secrets:
+  config_key:
+    file: ./secrets/config_key
+
+volumes:
+  socbridge-data:

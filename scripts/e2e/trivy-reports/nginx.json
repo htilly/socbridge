@@ -1,0 +1,20 @@
+{
+  "SchemaVersion": 2,
+  "CreatedAt": "2026-11-20T03:00:00Z",
+  "ArtifactName": "nginx:1.27",
+  "ArtifactType": "container_image",
+  "Metadata": { "OS": { "Family": "debian", "Name": "12.8" } },
+  "Results": [
+    {
+      "Target": "nginx:1.27 (debian 12.8)",
+      "Class": "os-pkgs",
+      "Type": "debian",
+      "Vulnerabilities": [
+        { "VulnerabilityID": "CVE-2024-3094", "PkgName": "xz-utils", "InstalledVersion": "5.6.0", "FixedVersion": "5.6.1", "Severity": "CRITICAL", "Title": "xz: malicious code in distributed source", "CVSS": { "nvd": { "V3Score": 10 } } },
+        { "VulnerabilityID": "CVE-2024-6387", "PkgName": "openssh-client", "InstalledVersion": "9.2p1", "FixedVersion": "9.2p1-2+deb12u3", "Severity": "HIGH", "Title": "openssh: regreSSHion", "CVSS": { "nvd": { "V3Score": 8.1 } } },
+        { "VulnerabilityID": "CVE-2023-45853", "PkgName": "zlib1g", "InstalledVersion": "1.2.13", "Severity": "MEDIUM", "Title": "zlib: integer overflow in MiniZip" },
+        { "VulnerabilityID": "CVE-2011-3374", "PkgName": "apt", "InstalledVersion": "2.6.1", "Severity": "LOW", "Title": "apt: weak key validation" }
+      ]
+    }
+  ]
+}

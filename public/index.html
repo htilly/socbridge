@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>SocBridge</title>
+<link rel="icon" type="image/svg+xml" href="/design/favicon.svg">
+<link rel="preload" href="/design/fonts/instrument-sans-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<style nonce="__NONCE__">/*__CSS__*/</style>
+</head>
+<body>
+<!-- Shared aperture blade. Its geometry is set from tokens by app.js; every mark on the page reuses it. -->
+<svg class="aperture-sprite" aria-hidden="true" focusable="false">
+  <defs><path id="aperture-blade" d=""/></defs>
+</svg>
+<section id="status-bar" class="status-bar" aria-label="Service status" hidden></section>
+<header class="top">
+  <a class="brand" href="#/" aria-label="SocBridge home">
+    <span id="brand-mark"></span>
+    <span class="brand-name">SocBridge</span>
+  </a>
+  <nav id="nav" aria-label="Main"></nav>
+</header>
+<main id="app"><p class="muted">Loading…</p></main>
+<script nonce="__NONCE__">/*__JS__*/</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="-44 -44 88 88" width="88" height="88" role="img" aria-label="SocBridge">
+  <!-- Aperture mark. R=44, a=13 (open). Geometry and colours mirror tokens.css. -->
+  <defs>
+    <path id="blade" d="M -44 -44 L 44 -44 L 44 -13 L -13 -13 Z"/>
+  </defs>
+  <use href="#blade" xlink:href="#blade" fill="#C89A48"/>
+  <use href="#blade" xlink:href="#blade" fill="#8E6B28" transform="rotate(90)"/>
+  <use href="#blade" xlink:href="#blade" fill="#C89A48" transform="rotate(180)"/>
+  <use href="#blade" xlink:href="#blade" fill="#8E6B28" transform="rotate(270)"/>
+</svg>
