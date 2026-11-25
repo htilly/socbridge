@@ -105,3 +105,17 @@ test('wazuh helpers', () => {
   assert.equal(parseTime('2026-01-01T00:00:00Z'), '2026-01-01T00:00:00.000Z');
   assert.throws(() => parseTime('yesterday'));
 });
+
+test('phone sign-in lists phone-capable passkeys as hybrid-only', async () => {
+  const { phoneCredentials } = await import('../http/passkeys.js');
+  const pk = (id: string, transports: string[], lastUsedAt?: string) => ({ id, publicKey: '', counter: 0, transports, label: id, createdAt: '', lastUsedAt });
+  const users = [
+    { id: 'a', disabled: false, passkeys: [pk('phone', ['hybrid', 'internal'], '2026-01-01'), pk('hello', ['internal']), pk('key', ['usb', 'nfc']), pk('old', [], '2026-02-01')] },
+    { id: 'b', disabled: true, passkeys: [pk('gone', ['hybrid'])] },
+  ] as unknown as Parameters<typeof phoneCredentials>[0];
+  assert.deepEqual(phoneCredentials(users), [
+    { id: 'old', transports: ['hybrid'] },
+    { id: 'phone', transports: ['hybrid'] },
+  ]);
+  assert.deepEqual(phoneCredentials([]), []);
+});

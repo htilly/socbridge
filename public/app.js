@@ -221,10 +221,13 @@
       });
     });
   }
-  /** With hints ['hybrid'] a browser that knows hints opens on its QR code; others ignore them and show all choices. */
-  function login(hints) {
-    return api('POST', '/auth/login/options', {}).then(function (start) {
-      if (hints) start.options.hints = hints;
+  /**
+   * phone: open on the QR code. The server lists phone-capable passkeys as hybrid-only (Windows Hello, used by Edge
+   * and Chrome on Windows, ignores hints); hints ['hybrid'] covers browsers that honour hints when that list is empty.
+   */
+  function login(phone) {
+    return api('POST', '/auth/login/options', phone ? { phone: true } : {}).then(function (start) {
+      if (phone) start.options.hints = ['hybrid'];
       return navigator.credentials.get(toGetOptions(start.options)).then(function (cred) {
         return api('POST', '/auth/login/verify', { flowId: start.flowId, response: assertionJSON(cred) });
       });
@@ -511,14 +514,14 @@
     var me = state.me;
     if (me.setupRequired) return viewSetup();
     var err = h('div');
-    function signIn(btn, hints) {
+    function signIn(btn, phone) {
       put(phoneHelp);
-      busy(btn, login(hints).then(aperture.open).then(start), err);
+      busy(btn, login(phone).then(aperture.open).then(start), err);
     }
     var phoneHelp = h('div');
     var btn = h('button', { class: 'primary', onclick: function () { signIn(btn); } }, 'Sign in with a passkey');
     var phone = h('button', { onclick: function () {
-      signIn(phone, ['hybrid']);
+      signIn(phone, true);
       put(phoneHelp, notice('info', 'Scan the QR code with the camera of the phone that has the passkey. If no code appears, choose “iPhone, iPad or Android device” or “Use a phone or tablet” in the browser’s dialog. Bluetooth must be on in both devices, and both need internet access.'));
     } }, 'Use a phone (QR code)');
     var nodes = [

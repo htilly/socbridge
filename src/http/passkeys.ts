@@ -53,6 +53,26 @@ const NameSchema = z
 
 const LabelSchema = z.string().trim().max(100).optional();
 
+/** Most credentials a browser is handed in allowCredentials (Chromium caps the list at 64). */
+const MAX_ALLOW = 64;
+
+/**
+ * Credentials that can be used from a phone, each marked as reachable only over 'hybrid' (QR code + Bluetooth).
+ * Windows Hello, and with it Edge and Chrome on Windows, ignores the WebAuthn `hints` field and opens on the
+ * local PIN prompt; a list whose every entry is hybrid-only makes it, and other browsers, go straight to the QR code.
+ * Passkeys known to live only on this computer or a security key are left out. An empty result means a normal,
+ * discoverable sign-in with all choices.
+ */
+export function phoneCredentials(users: readonly User[]): { id: string; transports: AuthenticatorTransport[] }[] {
+  return users
+    .filter((u) => !u.disabled)
+    .flatMap((u) => u.passkeys)
+    .filter((p) => p.transports.length === 0 || p.transports.includes('hybrid'))
+    .sort((a, b) => (b.lastUsedAt ?? '').localeCompare(a.lastUsedAt ?? ''))
+    .slice(0, MAX_ALLOW)
+    .map((p) => ({ id: p.id, transports: ['hybrid'] }));
+}
+
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const r = schema.safeParse(value);
   if (!r.success) throw new HttpError(400, r.error.issues.map((i) => i.message).join('; '));
@@ -240,7 +260,13 @@ export function passkeyRouter(ctx: AppContext): Router {
   // --- Sign in -----------------------------------------------------------
   router.post('/login/options', async (req, res) => {
     guardStart(req);
-    const options = await generateAuthenticationOptions({ rpID: ctx.env.rpId, timeout: PROMPT_MS, userVerification: 'required' });
+    const { phone } = parse(z.object({ phone: z.boolean().optional() }), req.body ?? {});
+    const options = await generateAuthenticationOptions({
+      rpID: ctx.env.rpId,
+      timeout: PROMPT_MS,
+      userVerification: 'required',
+      allowCredentials: phone ? phoneCredentials(ctx.store.get().users) : undefined,
+    });
     const flowId = randomToken(16);
     addFlow(flowId, { kind: 'login', challenge: options.challenge, expires: Date.now() + FLOW_TTL_MS });
     res.json({ flowId, options });
